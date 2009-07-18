@@ -25,63 +25,63 @@ The key to the multi_pass version is having an index on created_at or updated_at
 
 ## Example Migration
 
-class AddAColumnToMyGigantoTable < ActiveRecord::Migration
+    class AddAColumnToMyGigantoTable < ActiveRecord::Migration
 
-  # just a helper method so we don't have to repeat this in self.up and self.down
-  def self.setup
+      # just a helper method so we don't have to repeat this in self.up and self.down
+      def self.setup
 
-    # create a new TableMigrator instance for the table `users`
-    # :migration_name - a label for this migration, used to rename old tables.
-    #                   this must be unique for each migration using a TableMigrator
-    # :multi_pass     - copy the delta asynchronously multiple times.
-    # :dry_run        - set to false to really run the tm's SQL.
-    @tm = TableMigrator.new("users",
-      :migration_name => 'random_column',
-      :multi_pass => true,
-      :dry_run => false
-    )
-    
-    # push alter tables to schema_changes
-    @tm.schema_changes.push <<-SQL
-      ALTER TABLE :new_table_name 
-      ADD COLUMN `foo` int(11) unsigned NOT NULL DEFAULT 0
-    SQL
+        # create a new TableMigrator instance for the table `users`
+        # :migration_name - a label for this migration, used to rename old tables.
+        #                   this must be unique for each migration using a TableMigrator
+        # :multi_pass     - copy the delta asynchronously multiple times.
+        # :dry_run        - set to false to really run the tm's SQL.
+        @tm = TableMigrator.new("users",
+          :migration_name => 'random_column',
+          :multi_pass => true,
+          :dry_run => false
+        )
+        
+        # push alter tables to schema_changes
+        @tm.schema_changes.push <<-SQL
+          ALTER TABLE :new_table_name 
+          ADD COLUMN `foo` int(11) unsigned NOT NULL DEFAULT 0
+        SQL
 
-    @tm.schema_changes.push <<-SQL
-      ALTER TABLE :new_table_name 
-      ADD COLUMN `bar` varchar(255)
-    SQL
+        @tm.schema_changes.push <<-SQL
+          ALTER TABLE :new_table_name 
+          ADD COLUMN `bar` varchar(255)
+        SQL
 
-    @tm.schema_changes.push <<-SQL
-      ALTER TABLE :new_table_name 
-      ADD INDEX `index_foo` (`foo`)
-    SQL
+        @tm.schema_changes.push <<-SQL
+          ALTER TABLE :new_table_name 
+          ADD INDEX `index_foo` (`foo`)
+        SQL
 
-    # for convenience
-    common_cols = %w(id name session password_hash created_at updated_at)    
+        # for convenience
+        common_cols = %w(id name session password_hash created_at updated_at)    
 
-    # the base INSERT query with no wheres. (We'll take care of that part.)
-    @tm.base_copy_query = <<-SQL
-      INSERT INTO :new_table_name (#{common_cols.join(", ")}) 
-      SELECT #{common_cols.join(", ")} FROM :table_name
-    SQL
+        # the base INSERT query with no wheres. (We'll take care of that part.)
+        @tm.base_copy_query = <<-SQL
+          INSERT INTO :new_table_name (#{common_cols.join(", ")}) 
+          SELECT #{common_cols.join(", ")} FROM :table_name
+        SQL
 
-    # specify the ON DUPLICATE KEY update strategy.
-    @tm.on_duplicate_update_map = <<-SQL
-      #{common_cols.map {|c| "#{c}=VALUES(#{c})"}.join(", ")}
-    SQL
-  end
-  
-  def self.up
-    self.setup    
-    @tm.up!
-  end
+        # specify the ON DUPLICATE KEY update strategy.
+        @tm.on_duplicate_update_map = <<-SQL
+          #{common_cols.map {|c| "#{c}=VALUES(#{c})"}.join(", ")}
+        SQL
+      end
+      
+      def self.up
+        self.setup    
+        @tm.up!
+      end
 
-  def self.down
-    self.setup    
-    @tm.down!
-  end
-end
+      def self.down
+        self.setup    
+        @tm.down!
+      end
+    end
 
 
 
