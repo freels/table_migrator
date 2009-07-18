@@ -1,4 +1,4 @@
-class TableMigrator2
+class TableMigrator
   attr_accessor :table_name, :old_table_name
   attr_accessor :schema_changes, :base_copy_query, :on_duplicate_update_map
   attr_accessor :config
@@ -9,14 +9,14 @@ class TableMigrator2
   PAGE_SIZE = 50_000
   DELTA_PAGE_SIZE = 1000
   PAUSE_LENGTH = 5
-  
+
   def initialize(table_name, config = {})
     self.table_name = table_name
     self.schema_changes = []
 
     defaults = { :dry_run => true }
     self.config = defaults.merge(config)
- 
+
     #updated_at sanity check
     unless dry_run? or execute("SHOW COLUMNS FROM :table_name LIKE '#{delta_column}'").fetch_row
       raise "Cannot use #{self.class.name} on tables without a delta column"
@@ -25,18 +25,15 @@ class TableMigrator2
 
   def up!
     info (dry_run? ? 'Executing dry run...' : 'Executing forealz...')
-    
+
     self.create_new_table
-    
+
     # is there any data to copy?
     if dry_run? or execute('SELECT * FROM :table_name LIMIT 1').fetch_row
-      
+
       # copy bulk of table data
       self.paged_copy
 
-      # START HERE TOMORROROW: 
-      # @next_epoch = '2009-05-15 02:04:18'
-      
       # multi-pass delta copy to reduce the size of the locked pass
       self.multi_pass_delta_copy if multi_pass?
 
@@ -51,10 +48,10 @@ class TableMigrator2
         execute("ALTER TABLE `#{table_name}` RENAME TO `#{old_table_name}")
         execute("ALTER TABLE `#{new_table_name}` RENAME TO `#{table_name}`")
       end
-      
+
     else
       # if there are no rows previously, lock and copy everything (probably still nothing).
-      # this will not be the case in production.      
+      # this will not be the case in production.
       in_table_lock(table_name, new_table_name) do
         execute(self.base_copy_query)
         execute("ALTER TABLE `#{table_name}` RENAME TO `#{old_table_name}")
@@ -62,34 +59,34 @@ class TableMigrator2
       end
     end
   end
-  
+
   def down!
     in_table_lock(table_name, old_table_name) do
       execute("ALTER TABLE `#{table_name}` RENAME TO `#{new_table_name}`")
       execute("ALTER TABLE `#{old_table_name}` RENAME TO `#{table_name}`")
       execute("DROP TABLE `#{new_table_name}`")
     end
-  end   
- 
+  end
+
   # migration steps
-  
+
   def create_new_table
     info "Creating :new_table_name"
     execute("CREATE TABLE :new_table_name LIKE :table_name")
-    
+
     # make schema changes
     unless self.schema_changes.blank?
       self.schema_changes.each do |sql|
         execute(sql)
       end
-    end    
+    end
   end
-  
+
   def paged_copy
     info "Copying :table_name to :new_table_name."
     # record start of this epoch
     self.flop_epoch
-    
+
     start = 0
     page = 0
     loop do
@@ -141,10 +138,10 @@ class TableMigrator2
   def info(str)
     puts prepare_sql(str)
   end
-  
+
 
   # Manage the Epoch
-  
+
   def flop_epoch
     epoch = @next_epoch
     @next_epoch = self.next_epoch
@@ -166,11 +163,11 @@ class TableMigrator2
     else
       select_all(epoch_query).first[delta_column]
     end
-  end 
-  
-  
+  end
+
+
   # Derived Queries
-  
+
   def paged_copy_query(start, limit)
     "#{base_copy_query} WHERE `id` > #{start} LIMIT #{limit}"
   end
@@ -188,16 +185,16 @@ class TableMigrator2
     "#{base_copy_query} WHERE `id` in (#{ids.join(', ')})
       ON DUPLICATE KEY UPDATE #{on_duplicate_update_map}"
   end
-  
+
 
   # Config Helpers
-  
+
   # query
-  
+
   def delta_column
     config[:delta_column] || "updated_at"
   end
-  
+
   def new_table_name
     "new_#{table_name}"
   end
@@ -208,8 +205,8 @@ class TableMigrator2
     else
       "old#{table_name}"
     end
-  end  
-  
+  end
+
   # behavior
 
   def dry_run?
@@ -219,17 +216,17 @@ class TableMigrator2
   def multi_pass?
     config[:multi_pass] == true
   end
-  
-  
+
+
   # SQL Execution
-  
+
   def prepare_sql(sql)
     sql.to_s.
       gsub(":table_name", "`#{table_name}`").
       gsub(":old_table_name", "`#{old_table_name}`").
       gsub(":new_table_name", "`#{new_table_name}`")
   end
-  
+
   def execute(sql, quiet = false)
     info "Executing: #{sql}" unless quiet
 
