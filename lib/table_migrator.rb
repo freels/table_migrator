@@ -15,7 +15,7 @@ class TableMigrator
     self.schema_changes = []
     @column_names = @quoted_column_names = @base_copy_query = @on_duplicate_update_map = nil
 
-    defaults = { :dry_run => true, :create_temp_table => true }
+    defaults = { :dry_run => true, :create_temp_table => true, :delta_column => 'updated_at'}
     self.config = defaults.merge(config)
 
     #updated_at sanity check
@@ -45,12 +45,15 @@ class TableMigrator
   end
 
   def up!
-    info (dry_run? ? 'Executing dry run...' : 'Executing forealz...')
+    info 'Executing dry run...' if dry_run?
 
     self.create_new_table if create_temp_table?
 
     # is there any data to copy?
-    if dry_run? or execute('SELECT * FROM :table_name LIMIT 1').fetch_row
+    if dry_run? or execute("SELECT * FROM `#{table_name}` LIMIT 1").fetch_row
+
+      # use REPLACE instead of INSERT in the base copy query
+      self.base_copy_query.gsub! /\AINSERT/i, 'REPLACE'
 
       # copy bulk of table data
       self.paged_copy if create_temp_table?
@@ -99,20 +102,20 @@ class TableMigrator
     multi_pass_delta_copy if multi_pass?
   end
 
+
   # migration steps
   def create_new_table
-    execute("CREATE TABLE :new_table_name LIKE :table_name")
+    execute("CREATE TABLE `#{new_table_name}` LIKE `#{table_name}`")
 
     # make schema changes
     unless self.schema_changes.blank?
-      self.schema_changes.each do |sql|
-        execute(sql)
-      end
+      self.schema_changes.each {|sql| execute(sql) }
     end
   end
 
   def paged_copy
-    info "Copying :table_name to :new_table_name."
+    info "Copying #{table_name} to #{new_table_name}"
+
     # record start of this epoch
     self.flop_epoch
 
@@ -125,7 +128,7 @@ class TableMigrator
       new_start = if dry_run?
         0
       else
-        select_all("select max(id) from :new_table_name").first.values.first.to_i
+        select_all("select max(id) from `#{new_table_name}`").first.values.first.to_i
       end
 
       break if start == new_start
@@ -134,7 +137,7 @@ class TableMigrator
   end
 
   def multi_pass_delta_copy
-    info "Multi-pass non-locking delta copy from :table_name to :new_table_name"
+    info "Multi-pass non-locking delta copy from #{table_name} to #{new_table_name}"
 
     pass = 0
     loop do
@@ -160,7 +163,7 @@ class TableMigrator
 
   def full_delta_copy
     epoch = self.last_epoch
-    info_with_time "Copying delta from :table_name to :new_table_name" do
+    info_with_time "Copying delta from #{table_name} to #{new_table_name}" do
       execute(full_delta_copy_query(epoch))
     end
   end
@@ -187,7 +190,7 @@ class TableMigrator
   end
 
   def next_epoch
-    epoch_query = "SELECT `#{delta_column}` FROM `#{table_name}`
+    epoch_query = "SELECT `#{delta_column}` FROM `#{table}`
       ORDER BY `#{delta_column}` DESC LIMIT 1"
 
     if dry_run?
@@ -206,8 +209,7 @@ class TableMigrator
   end
 
   def full_delta_copy_query(epoch)
-    "#{base_copy_query} WHERE `#{delta_column}` >= '#{epoch}'
-      ON DUPLICATE KEY UPDATE #{on_duplicate_update_map}"
+    "#{base_copy_query} WHERE `#{delta_column}` >= '#{epoch}'"
   end
 
   def updated_ids_query(epoch)
@@ -215,8 +217,7 @@ class TableMigrator
   end
 
   def paged_delta_copy_query(ids)
-    "#{base_copy_query} WHERE `id` in (#{ids.join(', ')})
-      ON DUPLICATE KEY UPDATE #{on_duplicate_update_map}"
+    "#{base_copy_query} WHERE `id` in (#{ids.join(', ')})"
   end
 
 
@@ -225,7 +226,7 @@ class TableMigrator
   # query
 
   def delta_column
-    config[:delta_column] || "updated_at"
+    config[:delta_column]
   end
 
   def new_table_name
@@ -236,7 +237,7 @@ class TableMigrator
     if config[:migration_name]
       "#{table_name}_pre_#{config[:migration_name]}"
     else
-      "old#{table_name}"
+      "#{table_name}_old"
     end
   end
 
@@ -265,7 +266,7 @@ class TableMigrator
   end
 
   def execute(sql, quiet = false)
-    execution = lambda do 
+    execution = lambda do
       unless dry_run?
         ActiveRecord::Base.connection.execute(prepare_sql(sql))
       end
@@ -294,23 +295,18 @@ class TableMigrator
 
   def in_table_lock(*tables)
     info_with_time "Acquiring write lock." do
-      execute('SET autocommit=0')
-      table_locks = tables.map {|t| "`#{t}` WRITE"}.join(', ')
-      execute("LOCK TABLES #{table_locks}")
+      begin
+        execute('SET autocommit=0')
+        table_locks = tables.map {|t| "`#{t}` WRITE"}.join(', ')
+        execute("LOCK TABLES #{table_locks}")
 
-      yield
+        yield
 
-      execute('COMMIT')
-      execute('UNLOCK TABLES')
-      execute('SET autocommit=1')
-    end
-  end
-
-  def in_global_lock
-    info_with_time "Acquiring global lock" do
-      execute('FLUSH TABLES WITH READ LOCK')
-      yield
-      execute('UNLOCK TABLES')
+        execute('COMMIT')
+        execute('UNLOCK TABLES')
+      ensure
+        execute('SET autocommit=1')
+      end
     end
   end
 end
