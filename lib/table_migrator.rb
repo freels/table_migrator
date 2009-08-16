@@ -1,6 +1,7 @@
 class TableMigrator
+
   attr_accessor :table_name, :old_table_name
-  attr_accessor :schema_changes, :base_copy_query, :on_duplicate_update_map, :column_names, :quoted_column_names
+  attr_accessor :schema_changes, :base_copy_query, :column_names, :quoted_column_names
   attr_accessor :config
 
   # magic numbers
@@ -17,6 +18,8 @@ class TableMigrator
 
     defaults = { :dry_run => true, :create_temp_table => true, :delta_column => 'updated_at'}
     self.config = defaults.merge(config)
+
+    info "Deprecated: dry_run is no longer used."
 
     #updated_at sanity check
     unless dry_run? or column_names.include?(delta_column.to_s)
@@ -108,8 +111,10 @@ class TableMigrator
     execute("CREATE TABLE `#{new_table_name}` LIKE `#{table_name}`")
 
     # make schema changes
-    unless self.schema_changes.blank?
-      self.schema_changes.each {|sql| execute(sql) }
+    if strategy
+      strategy.replay_changes(ActiveRecord::Base.connection, new_table)
+    else
+      schema_changes.each {|sql| execute(sql) }
     end
   end
 
@@ -193,16 +198,22 @@ class TableMigrator
     epoch_query = "SELECT `#{delta_column}` FROM `#{table}`
       ORDER BY `#{delta_column}` DESC LIMIT 1"
 
-    if dry_run?
-      select_all(epoch_query)
-      Time.now.utc
-    else
-      select_all(epoch_query).first[delta_column]
-    end
+    select_all(epoch_query).first[delta_column]
   end
 
 
-  # Derived Queries
+  # Queries
+
+  def base_copy_query
+    if strategy
+      @base_copy_query ||= begin
+        columns = ActiveRecord::Base.connection.columns(table).map {|c| c.name }
+        strategy.copy_sql_for('REPLACE', table, new_table, columns)
+      end
+    else
+      @base_copy_query.gsub /\AINSERT/i, 'REPLACE'
+    end
+  end
 
   def paged_copy_query(start, limit)
     "#{base_copy_query} WHERE `id` > #{start} LIMIT #{limit}"
@@ -222,8 +233,6 @@ class TableMigrator
 
 
   # Config Helpers
-
-  # query
 
   def delta_column
     config[:delta_column]
