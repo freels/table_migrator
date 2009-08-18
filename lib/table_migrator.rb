@@ -280,22 +280,24 @@ class TableMigrator
   end
 
   def in_table_lock(*tables)
-    info "Acquiring write lock."
+    info_with_time "Acquiring write lock." do
+      execute('SET autocommit=0')
+      table_locks = tables.map {|t| "`#{t}` WRITE"}.join(', ')
+      execute("LOCK TABLES #{table_locks}")
 
-    execute('SET autocommit=0')
-    table_locks = tables.map {|t| "`#{t}` WRITE"}.join(', ')
-    execute("LOCK TABLES #{table_locks}")
+      yield
 
-    yield
-
-    execute('COMMIT')
-    execute('UNLOCK TABLES')
-    execute('SET autocommit=1')
+      execute('COMMIT')
+      execute('UNLOCK TABLES')
+      execute('SET autocommit=1')
+    end
   end
 
   def in_global_lock
-    execute('FLUSH TABLES WITH READ LOCK')
-    yield
-    execute('UNLOCK TABLES')
+    info_with_time "Acquiring global lock" do
+      execute('FLUSH TABLES WITH READ LOCK')
+      yield
+      execute('UNLOCK TABLES')
+    end
   end
 end
