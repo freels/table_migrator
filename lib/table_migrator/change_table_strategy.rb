@@ -1,14 +1,15 @@
 module TableMigrator
 
   class ChangeTableStrategy
-    attr_accessor :changes, :renames
+    attr_accessor :changes, :renames, :connection
 
     class TableNameMismatchError < Exception; end
 
-    def initialize(table_name)
+    def initialize(table_name, connection)
       @table_name = table_name
+      @connection = connection
       @changes = []
-      @renames = Hash.new {|h,k| h[k] = k.to_s }.with_indifferent_access
+      @renames = Hash.new {|h,k| h[k.to_s] = k.to_s }
 
       yield ::ActiveRecord::ConnectionAdapters::Table.new(table_name, self)
     end
@@ -22,6 +23,8 @@ module TableMigrator
     end
 
     def copy_sql_for(insert_or_replace, from_table, to_table, columns)
+      p columns
+      p renames
       copied = columns.reject {|c| renames[c].nil? }
       renamed = copied.map {|c| renames[c] }
 
@@ -30,36 +33,41 @@ module TableMigrator
     end
 
 
-    def register_change(method, table_name, *args)
+    # delegate methods used for table introspection to the native connection
+
+    def type_to_sql(*args);           connection.type_to_sql(*args); end
+    def quote_column_name(*args);     connection.quote_column_name(*args); end
+    def add_column_options!(*args);   connection.add_column_options!(*args); end
+    def native_database_types(*args); connection.native_database_types(*args); end
+
+
+    # change registration callbacks
+
+    def method_missing(method, table_name, *args)
       if table_name != @table_name
         raise TableNameMismatchError, "Expected table `#{@table_name}`, got `#{table_name}`!"
       end
 
-      # register the change if we need to do something special
-      # during the copy phase.
-      send(method, *args) if respond_to?(method)
+      # register the change if we need to do something special during the copy phase.
+      send("register_#{method}", *args) if respond_to?("register_#{method}")
 
       # record for replay later
-      changes << [method, *args]
-    end
-    alias method_missing register_change
-
-    private
-
-    # change registration callbacks
-
-    def rename_column(col, new_name)
-      renames[col] = new_name.to_s
+      changes << [method, args]
     end
 
-    def remove_column(*column_names)
+    def register_rename_column(col, new_name)
+      puts "rename called"
+      renames[col.to_s] = new_name.to_s
+    end
+
+    def register_remove_column(*column_names)
       column_names.each do |col|
-        renames[col] = nil
+        renames[col.to_s] = nil
       end
     end
 
-    def remove_timestamps
-      remove_column :created_at, :updated_at
+    def register_remove_timestamps
+      register_remove_column :created_at, :updated_at
     end
   end
 end

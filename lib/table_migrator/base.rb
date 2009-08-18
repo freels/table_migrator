@@ -7,7 +7,8 @@ module TableMigrator
         self.strategy = SqlStatementsStrategy.new
         yield(strategy)
       else
-        self.strategy = ChangeTableStrategy.new(table, &block)
+        connection = ActiveRecord::Base.connection
+        self.strategy = ChangeTableStrategy.new(table, connection, &block)
       end
 
       self.engine = CopyEngine.new(table, strategy, config)
