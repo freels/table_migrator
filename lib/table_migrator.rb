@@ -11,7 +11,7 @@ class TableMigrator
   PAUSE_LENGTH = 5
 
   def initialize(table_name, config = {})
-    self.table_name = table_name
+    self.table_name     = table_name
     self.schema_changes = []
 
     defaults = { :dry_run => true }
