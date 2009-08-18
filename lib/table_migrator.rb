@@ -1,6 +1,6 @@
 class TableMigrator
   attr_accessor :table_name, :old_table_name
-  attr_accessor :schema_changes, :base_copy_query, :on_duplicate_update_map
+  attr_accessor :schema_changes, :base_copy_query, :on_duplicate_update_map, :column_names, :quoted_column_names
   attr_accessor :config
 
   # magic numbers
@@ -13,14 +13,35 @@ class TableMigrator
   def initialize(table_name, config = {})
     self.table_name     = table_name
     self.schema_changes = []
+    @column_names = @quoted_column_names = @base_copy_query = @on_duplicate_update_map = nil
 
     defaults = { :dry_run => true }
     self.config = defaults.merge(config)
 
     #updated_at sanity check
-    unless dry_run? or execute("SHOW COLUMNS FROM :table_name LIKE '#{delta_column}'").fetch_row
-      raise "Cannot use #{self.class.name} on tables without a delta column"
+    unless dry_run? or column_names.include?(delta_column.to_s)
+      raise "Cannot use #{self.class.name} on #{table_name.inspect} table without a delta column: #{delta_column.inspect}"
     end
+  end
+
+  def column_names
+    @column_names ||= ActiveRecord::Base.connection.columns(@table_name).map { |c| c.name }
+  end
+
+  def quoted_column_names
+    @quoted_column_names ||= column_names.map { |n| "`#{n}`" }
+  end
+
+  def base_copy_query(columns = nil)
+    @base_copy_query   = nil unless columns.nil?
+    columns          ||= quoted_column_names
+    @base_copy_query ||= %(INSERT INTO :new_table_name (#{columns.join(", ")}) SELECT #{columns.join(", ")} FROM :table_name)
+  end
+
+  def on_duplicate_update_map(columns = nil)
+    @on_duplicate_update_map   = nil unless columns.nil?
+    columns                  ||= quoted_column_names
+    @on_duplicate_update_map ||= %(#{common_cols.map {|c| "#{c}=VALUES(#{c})"}.join(", ")})
   end
 
   def up!
