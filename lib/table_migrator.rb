@@ -71,7 +71,6 @@ class TableMigrator
   # migration steps
 
   def create_new_table
-    info "Creating :new_table_name"
     execute("CREATE TABLE :new_table_name LIKE :table_name")
 
     # make schema changes
@@ -130,15 +129,19 @@ class TableMigrator
   end
 
   def full_delta_copy
-    info "Copying delta from :table_name to :new_table_name"
     epoch = self.last_epoch
-    execute(full_delta_copy_query(epoch))
+    info "Copying delta from :table_name to :new_table_name" do
+      execute(full_delta_copy_query(epoch))
+    end
   end
 
   def info(str)
-    puts prepare_sql(str)
+    ActiveRecord::Migration.say(prepare_sql(str))
   end
 
+  def info_with_time(str, &block)
+    ActiveRecord::Migration.say_with_time(prepare_sql(str), &block)
+  end
 
   # Manage the Epoch
 
@@ -228,20 +231,30 @@ class TableMigrator
   end
 
   def execute(sql, quiet = false)
-    info "Executing: #{sql}" unless quiet
-
-    unless dry_run?
-      ActiveRecord::Base.connection.execute(prepare_sql(sql))
+    execution = lambda do 
+      unless dry_run?
+        ActiveRecord::Base.connection.execute(prepare_sql(sql))
+      end
+    end
+    if quiet
+      execution.call
+    else
+      info_with_time("Executing: #{sql}", &execution)
     end
   end
 
   def select_all(sql, quiet = false)
-    info "Finding: #{sql}" unless quiet
-
-    if dry_run?
-      []
+    execution = lambda do
+      if dry_run?
+        []
+      else
+        ActiveRecord::Base.connection.select_all(prepare_sql(sql))
+      end
+    end
+    if quiet
+      execution.call
     else
-      ActiveRecord::Base.connection.select_all(prepare_sql(sql))
+      info_with_time("Finding: #{sql}", &execution)
     end
   end
 
