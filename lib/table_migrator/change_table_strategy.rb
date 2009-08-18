@@ -1,5 +1,6 @@
 module TableMigrator
-  class MigrationStrategy
+
+  class ChangeTableStrategy
     attr_accessor :changes, :renames
 
     class TableNameMismatchError < Exception; end
@@ -11,6 +12,23 @@ module TableMigrator
 
       yield ::ActiveRecord::ConnectionAdapters::Table.new(table_name, self)
     end
+
+    # interface used by Base.
+
+    def apply_changes(connection, table_name)
+      changes.each do |method, args|
+        connection.send(method, table_name, *args)
+      end
+    end
+
+    def copy_sql_for(insert_or_replace, from_table, to_table, columns)
+      copied = columns.reject {|c| renames[c].nil? }
+      renamed = copied.map {|c| renames[c] }
+
+      "#{insert_or_replace} INTO #{to_table} (#{renamed.join(', ')})
+        SELECT #{copied.join(', ')} FROM #{from_table}"
+    end
+
 
     def register_change(method, table_name, *args)
       if table_name != @table_name
@@ -26,23 +44,9 @@ module TableMigrator
     end
     alias method_missing register_change
 
-    def replay_changes(connection, table_name)
-      changes.each do |method, args|
-        connection.send(method, table_name, *args)
-      end
-    end
-
-    def copy_sql_for(insert_or_replace, from_table, to_table, columns)
-      copied = columns.reject {|c| renames[c].nil? }
-      renamed = copied.map {|c| renames[c] }
-
-      "#{insert_or_replace} INTO #{to_table} (#{renamed.join(', ')})
-        SELECT #{copied.join(', ')} FROM #{from_table}"
-    end
-
     private
 
-    # connection adapter masking
+    # change registration callbacks
 
     def rename_column(col, new_name)
       renames[col] = new_name.to_s
