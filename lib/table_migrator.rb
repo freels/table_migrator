@@ -41,7 +41,7 @@ class TableMigrator
   def on_duplicate_update_map(columns = nil)
     @on_duplicate_update_map   = nil unless columns.nil?
     columns                  ||= quoted_column_names
-    @on_duplicate_update_map ||= %(#{common_cols.map {|c| "#{c}=VALUES(#{c})"}.join(", ")})
+    @on_duplicate_update_map ||= %(#{columns.map {|c| "#{c}=VALUES(#{c})"}.join(", ")})
   end
 
   def up!
