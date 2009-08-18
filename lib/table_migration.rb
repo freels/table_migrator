@@ -2,6 +2,8 @@ class TableMigration < ActiveRecord::Migration
   class << self
     attr_reader :table_migrator
     delegate :schema_changes,          :to => :table_migrator
+    delegate :column_names,            :to => :table_migrator
+    delegate :quoted_column_names,     :to => :table_migrator
     delegate :base_copy_query,         :to => :table_migrator
     delegate :on_duplicate_update_map, :to => :table_migrator
   end

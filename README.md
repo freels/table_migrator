@@ -22,12 +22,53 @@ The solution to find updated or new rows is to use updated_at (if a row is mutab
 
 If we are doing a single delta pass (you set :multi_pass to false), then a write lock is acquired before the delta copy, the delta is copied to the new table, the tables are swapped, and then the lock is released.
 
-The :mutli_pass version does the same thing above but copies the delta in a non-blocking manner multple times until the length if time taken is small enough. Finally, the last delta copy is done synchronously, and the tables are swapped. Usually the delta left for this last copy is extremely small. Hence the claim zero-downtime migration.
+The :multi_pass version does the same thing above but copies the delta in a non-blocking manner multple times until the length if time taken is small enough. Finally, the last delta copy is done synchronously, and the tables are swapped. Usually the delta left for this last copy is extremely small. Hence the claim zero-downtime migration.
 
 The key to the multi_pass version is having an index on created_at or updated_at. Having an index on the relevant field makes looking up the delta much faster. Without that index, TableMigrator has to do a table scan while holding the table write lock, and that means you are definitely going to incur downtime.
 
+## Example Migration (shortcut)
 
-## Example Migration
+You can create your migration by inheriting from TableMigration and skip some of the setup required for the TableMigrator.
+
+    class AddAColumnToMyGigantoTable < TableMigration
+      migrates :users, 
+        :multi_pass => true,
+        # assumed, feel free to specify if you so desire
+        # :migration_name => 'add_a_column_to_my_giganto_table',
+        :dry_run => false
+
+      # push alter tables to schema_changes
+      schema_changes.push <<-SQL
+        ALTER TABLE :new_table_name 
+        ADD COLUMN `foo` int(11) unsigned NOT NULL DEFAULT 0
+      SQL
+
+      schema_changes.push <<-SQL
+        ALTER TABLE :new_table_name 
+        ADD COLUMN `bar` varchar(255)
+      SQL
+
+      schema_changes.push <<-SQL
+        ALTER TABLE :new_table_name 
+        ADD INDEX `index_foo` (`foo`)
+      SQL
+
+      # This is queried from the table for you
+      table_migrator.column_names = %w(id name session password_hash created_at updated_at)
+
+      # the base INSERT query with no wheres. (This is generated for you based on the column names above)
+      table_migrator.base_copy_query = <<-SQL
+        INSERT INTO :new_table_name (#{column_names.join(", ")}) 
+        SELECT #{column_names.join(", ")} FROM :table_name
+      SQL
+
+      # specify the ON DUPLICATE KEY update strategy. (This is generated for you based on the column names above)
+      table_migrator.on_duplicate_update_map = <<-SQL
+        #{column_names.map {|c| "#{c}=VALUES(#{c})"}.join(", ")}
+      SQL
+    end
+
+## Example Migration (explicit)
 
     class AddAColumnToMyGigantoTable < ActiveRecord::Migration
 
