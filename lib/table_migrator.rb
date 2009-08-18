@@ -160,7 +160,7 @@ class TableMigrator
 
   def full_delta_copy
     epoch = self.last_epoch
-    info "Copying delta from :table_name to :new_table_name" do
+    info_with_time "Copying delta from :table_name to :new_table_name" do
       execute(full_delta_copy_query(epoch))
     end
   end
