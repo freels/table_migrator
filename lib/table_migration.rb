@@ -8,6 +8,10 @@ class TableMigration < ActiveRecord::Migration
     delegate :on_duplicate_update_map, :to => :table_migrator
   end
 
+  def self.create_table_and_copy_info
+    table_migrator.create_table_and_copy_info
+  end
+
   def self.migrates(table_name, config = {})
     default = {:migration_name => name.underscore}
     puts default.update(config).inspect

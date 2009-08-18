@@ -35,6 +35,7 @@ You can create your migration by inheriting from TableMigration and skip some of
         :multi_pass => true,
         # assumed, feel free to specify if you so desire
         # :migration_name => 'add_a_column_to_my_giganto_table',
+        :create_temp_table => true, # default
         :dry_run => false
 
       # push alter tables to schema_changes
@@ -83,6 +84,7 @@ You can create your migration by inheriting from TableMigration and skip some of
         @tm = TableMigrator.new("users",
           :migration_name => 'random_column',
           :multi_pass => true,
+          :create_temp_table => true, # default
           :dry_run => false
         )
         
@@ -126,9 +128,28 @@ You can create your migration by inheriting from TableMigration and skip some of
         self.setup    
         @tm.down!
       end
+
+      # see 'two-phase migration' below
+      def self.create_table_and_copy_info
+        self.setup
+        @tm.create_table_and_copy_info
+      end
     end
 
+# Two-phase migration
 
+You can run the migration in two phases if you set the `:create_temp_table` option to false.
+
+First, you deploy the code with the migration and manually run the `#create_table_and_copy_info` method:
+
+    # if you use a TableMigration sublcass
+    >> require 'db/migrate/13423423_my_migration.rb'
+    >> MyMigration.create_table_and_copy_info
+
+This creates the temporary table, copies the data over without locking anything.  You can safely run this without halting your application.
+
+Finally, you put up whatever downtime notices you have and run your typical migration task.  Since the table is already created, the script will only
+copy data (if multi_pass is enabled) and perform the actual table move.  It assumes the temporary table has been created already.
 
 Thanks go to the rest of the crew at SB.
 

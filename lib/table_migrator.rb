@@ -15,7 +15,7 @@ class TableMigrator
     self.schema_changes = []
     @column_names = @quoted_column_names = @base_copy_query = @on_duplicate_update_map = nil
 
-    defaults = { :dry_run => true }
+    defaults = { :dry_run => true, :create_temp_table => true }
     self.config = defaults.merge(config)
 
     #updated_at sanity check
@@ -47,21 +47,23 @@ class TableMigrator
   def up!
     info (dry_run? ? 'Executing dry run...' : 'Executing forealz...')
 
-    self.create_new_table
+    self.create_new_table if create_temp_table?
 
     # is there any data to copy?
     if dry_run? or execute('SELECT * FROM :table_name LIMIT 1').fetch_row
 
       # copy bulk of table data
-      self.paged_copy
+      self.paged_copy if create_temp_table?
 
       # multi-pass delta copy to reduce the size of the locked pass
       self.multi_pass_delta_copy if multi_pass?
 
-      # wait here...
-      info "Waiting for #{PAUSE_LENGTH} seconds"
-      PAUSE_LENGTH.times { info '.'; $stdout.flush; sleep 1 }
-      info ' '
+      if create_temp_table? || multi_pass?
+        # wait here...
+        info "Waiting for #{PAUSE_LENGTH} seconds"
+        PAUSE_LENGTH.times { info '.'; $stdout.flush; sleep 1 }
+        info ' '
+      end
 
       # lock for write, copy final delta, and swap
       in_table_lock(table_name, new_table_name) do
@@ -89,8 +91,15 @@ class TableMigrator
     end
   end
 
-  # migration steps
+  # performs only the table creation and copy phases so that the actual migration
+  # is as quick as possible.
+  def create_table_and_copy_info
+    create_new_table
+    paged_copy
+    multi_pass_delta_copy if multi_pass?
+  end
 
+  # migration steps
   def create_new_table
     execute("CREATE TABLE :new_table_name LIKE :table_name")
 
@@ -235,6 +244,10 @@ class TableMigrator
 
   def dry_run?
     config[:dry_run] == true
+  end
+
+  def create_temp_table?
+    config[:create_temp_table] == true
   end
 
   def multi_pass?
