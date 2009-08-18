@@ -7,7 +7,9 @@ class TableMigration < ActiveRecord::Migration
   end
 
   def self.migrates(table_name, config = {})
-    @table_migrator = TableMigrator.new(table_name, config)
+    default = {:migration_name => name.underscore}
+    puts default.update(config).inspect
+    @table_migrator = TableMigrator.new(table_name, default.update(config))
   end
 
   def self.up
