@@ -5,7 +5,7 @@ class TableMigration < ActiveRecord::Migration
     delegate :column_names,            :to => :table_migrator
     delegate :quoted_column_names,     :to => :table_migrator
     delegate :base_copy_query,         :to => :table_migrator
-    delegate :on_duplicate_update_map, :to => :table_migrator
+    delegate :change_table,            :to => :table_migrator
   end
 
   def self.create_table_and_copy_info
@@ -15,7 +15,7 @@ class TableMigration < ActiveRecord::Migration
   def self.migrates(table_name, config = {})
     default = {:migration_name => name.underscore}
     puts default.update(config).inspect
-    @table_migrator = TableMigrator.new(table_name, default.update(config))
+    @table_migrator = TableMigrator::Base.new(table_name, default.update(config))
   end
 
   def self.up

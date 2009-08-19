@@ -1,35 +1,33 @@
 module TableMigrator
 
-  class ChangeTableStrategy
-    attr_accessor :changes, :renames, :connection
+  class ChangeTableStrategy < CopyStrategy
+    attr_accessor :changes, :renames
 
     class TableNameMismatchError < Exception; end
 
-    def initialize(table_name, connection)
-      @table_name = table_name
-      @connection = connection
+    def initialize(table, config, connection)
+      super(table, config, connection)
+
       @changes = []
       @renames = Hash.new {|h,k| h[k.to_s] = k.to_s }
 
-      yield ::ActiveRecord::ConnectionAdapters::Table.new(table_name, self)
+      yield ::ActiveRecord::ConnectionAdapters::Table.new(table, self)
     end
 
     # interface used by Base.
 
-    def apply_changes(connection, table_name)
+    def apply_changes
       changes.each do |method, args|
-        connection.send(method, table_name, *args)
+        connection.send(method, new_table, *args)
       end
     end
 
-    def copy_sql_for(insert_or_replace, from_table, to_table, columns)
-      p columns
-      p renames
-      copied = columns.reject {|c| renames[c].nil? }
+    def base_copy_query(insert_or_replace)
+      copied = column_names.reject {|c| renames[c].nil? }
       renamed = copied.map {|c| renames[c] }
 
-      "#{insert_or_replace} INTO #{to_table} (#{renamed.join(', ')})
-        SELECT #{copied.join(', ')} FROM #{from_table}"
+      "#{insert_or_replace} INTO `#{new_table}` (#{renamed.join(', ')})
+        SELECT #{copied.join(', ')} FROM `#{table}`"
     end
 
 
@@ -44,8 +42,8 @@ module TableMigrator
     # change registration callbacks
 
     def method_missing(method, table_name, *args)
-      if table_name != @table_name
-        raise TableNameMismatchError, "Expected table `#{@table_name}`, got `#{table_name}`!"
+      if table_name != @table
+        raise TableNameMismatchError, "Expected table `#{@table}`, got `#{table_name}`!"
       end
 
       # register the change if we need to do something special during the copy phase.
@@ -60,8 +58,8 @@ module TableMigrator
       renames[col.to_s] = new_name.to_s
     end
 
-    def register_remove_column(*column_names)
-      column_names.each do |col|
+    def register_remove_column(*columns)
+      columns.each do |col|
         renames[col.to_s] = nil
       end
     end

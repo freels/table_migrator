@@ -1,9 +1,7 @@
 module TableMigrator
   class CopyEngine
 
-    attr_accessor :table_name, :old_table_name
-    attr_accessor :schema_changes, :base_copy_query, :column_names, :quoted_column_names
-    attr_accessor :config
+    attr_accessor :strategy
 
     # magic numbers
     MAX_DELTA_PASSES = 5
@@ -12,40 +10,13 @@ module TableMigrator
     DELTA_PAGE_SIZE = 1000
     PAUSE_LENGTH = 5
 
-    def initialize(table_name, config = {})
-      self.table_name     = table_name
-      self.schema_changes = []
-      @column_names = @quoted_column_names = @base_copy_query = @on_duplicate_update_map = nil
-
-      defaults = { :dry_run => true, :create_temp_table => true, :delta_column => 'updated_at'}
-      self.config = defaults.merge(config)
-
-      info "Deprecated: dry_run is no longer used."
+    def initialize(strategy)
+      self.strategy = strategy 
 
       #updated_at sanity check
-      unless dry_run? or column_names.include?(delta_column.to_s)
+      unless dry_run? or strategy.column_names.include?(delta_column.to_s)
         raise "Cannot use #{self.class.name} on #{table_name.inspect} table without a delta column: #{delta_column.inspect}"
       end
-    end
-
-    def column_names
-      @column_names ||= ActiveRecord::Base.connection.columns(@table_name).map { |c| c.name }
-    end
-
-    def quoted_column_names
-      @quoted_column_names ||= column_names.map { |n| "`#{n}`" }
-    end
-
-    def base_copy_query(columns = nil)
-      @base_copy_query   = nil unless columns.nil?
-      columns          ||= quoted_column_names
-      @base_copy_query ||= %(INSERT INTO :new_table_name (#{columns.join(", ")}) SELECT #{columns.join(", ")} FROM :table_name)
-    end
-
-    def on_duplicate_update_map(columns = nil)
-      @on_duplicate_update_map   = nil unless columns.nil?
-      columns                  ||= quoted_column_names
-      @on_duplicate_update_map ||= %(#{columns.map {|c| "#{c}=VALUES(#{c})"}.join(", ")})
     end
 
     def up!
@@ -55,9 +26,6 @@ module TableMigrator
 
       # is there any data to copy?
       if dry_run? or execute("SELECT * FROM `#{table_name}` LIMIT 1").fetch_row
-
-        # use REPLACE instead of INSERT in the base copy query
-        self.base_copy_query.gsub! /\AINSERT/i, 'REPLACE'
 
         # copy bulk of table data
         self.paged_copy if create_temp_table?
@@ -112,11 +80,7 @@ module TableMigrator
       execute("CREATE TABLE `#{new_table_name}` LIKE `#{table_name}`")
 
       # make schema changes
-      if strategy
-        strategy.replay_changes(ActiveRecord::Base.connection, new_table)
-      else
-        schema_changes.each {|sql| execute(sql) }
-      end
+      strategy.apply_changes
     end
 
     def paged_copy
@@ -174,12 +138,14 @@ module TableMigrator
       end
     end
 
+    # Logging
+
     def info(str)
-      ActiveRecord::Migration.say(prepare_sql(str))
+      ActiveRecord::Migration.say(str)
     end
 
     def info_with_time(str, &block)
-      ActiveRecord::Migration.say_with_time(prepare_sql(str), &block)
+      ActiveRecord::Migration.say_with_time(str, &block)
     end
 
     # Manage the Epoch
@@ -196,7 +162,7 @@ module TableMigrator
     end
 
     def next_epoch
-      epoch_query = "SELECT `#{delta_column}` FROM `#{table}`
+      epoch_query = "SELECT `#{delta_column}` FROM `#{table_name}`
       ORDER BY `#{delta_column}` DESC LIMIT 1"
 
       select_all(epoch_query).first[delta_column]
@@ -206,14 +172,7 @@ module TableMigrator
     # Queries
 
     def base_copy_query
-      if strategy
-        @base_copy_query ||= begin
-          columns = ActiveRecord::Base.connection.columns(table).map {|c| c.name }
-          strategy.copy_sql_for('REPLACE', table, new_table, columns)
-        end
-      else
-        @base_copy_query.gsub /\AINSERT/i, 'REPLACE'
-      end
+      strategy.base_copy_query('REPLACE')
     end
 
     def paged_copy_query(start, limit)
@@ -236,49 +195,42 @@ module TableMigrator
     # Config Helpers
 
     def delta_column
-      config[:delta_column]
+      strategy.config[:delta_column]
+    end
+
+    def table_name
+      strategy.table
     end
 
     def new_table_name
-    "new_#{table_name}"
+      strategy.new_table
     end
 
     def old_table_name
-      if config[:migration_name]
-      "#{table_name}_pre_#{config[:migration_name]}"
-      else
-      "#{table_name}_old"
-      end
+      strategy.old_table
     end
 
     # behavior
 
     def dry_run?
-      config[:dry_run] == true
+      strategy.config[:dry_run] == true
     end
 
     def create_temp_table?
-      config[:create_temp_table] == true
+      strategy.config[:create_temp_table] == true
     end
 
     def multi_pass?
-      config[:multi_pass] == true
+      strategy.config[:multi_pass] == true
     end
 
 
     # SQL Execution
 
-    def prepare_sql(sql)
-      sql.to_s.
-        gsub(":table_name", "`#{table_name}`").
-        gsub(":old_table_name", "`#{old_table_name}`").
-        gsub(":new_table_name", "`#{new_table_name}`")
-    end
-
     def execute(sql, quiet = false)
       execution = lambda do
         unless dry_run?
-          ActiveRecord::Base.connection.execute(prepare_sql(sql))
+          strategy.connection.execute(sql)
         end
       end
       if quiet
@@ -293,7 +245,7 @@ module TableMigrator
         if dry_run?
           []
         else
-          ActiveRecord::Base.connection.select_all(prepare_sql(sql))
+          strategy.connection.select_all(sql)
         end
       end
       if quiet
