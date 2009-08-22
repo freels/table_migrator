@@ -80,7 +80,8 @@ module TableMigrator
       execute("CREATE TABLE `#{new_table_name}` LIKE `#{table_name}`")
 
       # make schema changes
-      strategy.apply_changes
+      info "Applying schema changes to new table"
+      strategy.apply_changes unless dry_run?
     end
 
     def paged_copy
@@ -162,6 +163,8 @@ module TableMigrator
     end
 
     def next_epoch
+      return Time.at(0) if dry_run?
+
       epoch_query = "SELECT `#{delta_column}` FROM `#{table_name}`
       ORDER BY `#{delta_column}` DESC LIMIT 1"
 

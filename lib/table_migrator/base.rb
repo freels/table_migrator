@@ -7,7 +7,7 @@ module TableMigrator
     def initialize(table, config = {})
       self.table = table
 
-      defaults = { :dry_run => true, :create_temp_table => true, :delta_column => 'updated_at'}
+      defaults = { :dry_run => false, :create_temp_table => true, :delta_column => 'updated_at'}
       self.config = defaults.merge(config)
     end
 
