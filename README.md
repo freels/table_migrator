@@ -1,93 +1,118 @@
 # TableMigrator
 
-by Matt Freels and Rohith Ravi
-
-
-Zero-downtime migrations of large tables in MySQL. 
+Zero-downtime migrations of large tables in MySQL.
 
 See the example for usage. Make sure you have an index on updated_at.
 
-Install as a rails plugin:
-
-    ./script/plugin install git://github.com/freels/table_migrator.git
+Install as a rails plugin: `./script/plugin install git://github.com/freels/table_migrator.git`
 
 
 ### What this does
 
-TableMigrator is a strategy for altering large MySQL tables while incurring as little downtime as possible. There is nothing special about ALTER TABLE. All it does is create a new table with the new schema and copy over each row from the original table. Oh, and it does this in a big giant table lock, so you won't be using that big table for a while...
+TableMigrator is a method for altering large MySQL tables while incurring as little downtime as possible. There is nothing special about `ALTER TABLE`. All it does is create a new table with the new schema and copy over each row from the original table. Oh, and it does this in a big giant table lock, so you won't be using that big table for a while...
 
-TableMigrator does essentially the same thing as ALTER TABLE, but more intelligently, since we can be more intelligent when we know something about the data being copied. First, we create a new table like the original one, and then apply one or more ALTER TABLE statements to the unused, empty table. Second we copy all rows from the original table into the new one. All this time, reads and writes are going to the original table, so the two tables are not consistent. 
+TableMigrator does essentially the same thing, but more intelligently. First, we create a new table like the original one, and then apply one or more `ALTER TABLE` statements to the unused, empty table. Second we copy all rows from the original table into the new one. All this time, reads and writes are going to the original table, so the two tables are not consistent. Finally, we acquire a write lock on the original table before copying over all new/changed rows, and swapping in the new table.
 
-The solution to find updated or new rows is to use updated_at (if a row is mutable) or created_at (if it is immutable) to determine which rows have been modified since the copy started. Those rows are copied over to the new table using an INSERT TABLE sequence with an ON DUPLICATE KEY clause.
+The solution to find updated or new rows is to use a column like `updated_at` (if a row is mutable) or `created_at` (if it is immutable) to determine which rows have been modified since the copy started. These rows are copied over to the new table using `REPLACE`.
 
-If we are doing a single delta pass (you set :multi_pass to false), then a write lock is acquired before the delta copy, the delta is copied to the new table, the tables are swapped, and then the lock is released.
+If we do a single sweep of changed rows (you set `:multi_pass` to false), then a write lock is acquired before the sweep, new/changed rows are copied to the new table, the tables are swapped, and then the lock is released.
 
-The :multi_pass version does the same thing above but copies the delta in a non-blocking manner multple times until the length if time taken is small enough. Finally, the last delta copy is done synchronously, and the tables are swapped. Usually the delta left for this last copy is extremely small. Hence the claim zero-downtime migration.
+The default method (`:multi_pass => true`) copies over changed rows in a non-blocking manner multiple times until we can be reasonably sure that the final sweep will take very little time. The last sweep is done within the write lock, and then the tables are swapped. The length of time taken in the write lock is extremely short, hence the claim zero-downtime migration.
 
-The key to the multi_pass version is having an index on created_at or updated_at. Having an index on the relevant field makes looking up the delta much faster. Without that index, TableMigrator has to do a table scan while holding the table write lock, and that means you are definitely going to incur downtime.
+The key to making these sweeps for changes fast is to have an index on the column used to find them. Having an index on the relevant column makes this process fast. Without that index, TableMigrator eventually has to do a table scan within the final synchronous sweep, and that means downtime will be unavoidable.
 
-## Example Migration (shortcut)
+### A note about DELETE
 
-You can create your migration by inheriting from TableMigration and skip some of the setup required for the TableMigrator.
+This method will not propagate normal `DELETES`s to the new table if they happen during/after the copy. In order to avoid this, use paranoid deletion, and update the column you are using to find changes appropriately.
 
-    class AddAColumnToMyGigantoTable < TableMigration
-      migrates :users, 
-        :multi_pass => true,
-        # assumed, feel free to specify if you so desire
-        # :migration_name => 'add_a_column_to_my_giganto_table',
-        :create_temp_table => true, # default
-        :dry_run => false
+
+## Examples
+
+### Simple Migration
+
+TableMigrator supports two APIs for defining migrations. One uses ActiveRecord's `change_table` syntax, and the other uses manually defined SQL snippets. You can create your migration by inheriting from TableMigration and skip some of the setup normally required.
+
+    # using change_table
+
+    class AddStuffToMyBigTable < TableMigration
+
+      migrates :users
+      # migrates also can take an options hash:
+      #   :multi_pass        - See explanation above. Defaults to true
+      #   :migration_name    - the original table is not dropped after the migration.
+      #                        It will instead have a name based on this option.
+      #                        The default is based on the migration class. (The old table
+      #                        will end up named 'users_before_add_stuff_to_my_big_table'
+      #                        in this case)
+      #   :create_temp_table - Performs the migration in two steps if false. Read below
+      #                        for details. Defaults to true.
+      #   :dry_run           - If true, the migration will not actually run, just emit
+      #                        fake progress to the log. Defaults to false.
+
+      change_table do |t|
+        t.integer :foo, :null => false, :default => 0
+        t.string  :bar
+        t.index   :foo, :name => 'index_for_foo'
+      end
+    end
+
+
+    # using raw sql
+
+    class AddStuffToMyBigTable < TableMigration
+      migrates :users
 
       # push alter tables to schema_changes
       schema_changes.push <<-SQL
-        ALTER TABLE :new_table_name 
+        ALTER TABLE :new_table_name
         ADD COLUMN `foo` int(11) unsigned NOT NULL DEFAULT 0
       SQL
 
       schema_changes.push <<-SQL
-        ALTER TABLE :new_table_name 
+        ALTER TABLE :new_table_name
         ADD COLUMN `bar` varchar(255)
       SQL
 
       schema_changes.push <<-SQL
-        ALTER TABLE :new_table_name 
+        ALTER TABLE :new_table_name
         ADD INDEX `index_foo` (`foo`)
       SQL
 
-      # This is queried from the table for you
-      table_migrator.column_names = %w(id name session password_hash created_at updated_at)
+      # some helpers are provided:
+      #   table_migrator      - access to the TableMigrator instance being configured
+      #   column_names        - defaults to an array of the original table's columns.
+      #   quoted_column_names - the above, with each quoted in back-ticks.
 
-      # the base INSERT query with no wheres. (This is generated for you based on the column names above)
+      # you can also customize the base copy query by setting it to an INSERT statement
+      # with no conditions. The default is based on column_names, above.
+      # :table_name and :new_table_name are replaced with the original table and
+      # new table names, respectively INSERT is substituted for REPLACE after the initial
+      # bulk copy.
       table_migrator.base_copy_query = <<-SQL
         INSERT INTO :new_table_name (#{column_names.join(", ")}) 
         SELECT #{column_names.join(", ")} FROM :table_name
       SQL
-
-      # specify the ON DUPLICATE KEY update strategy. (This is generated for you based on the column names above)
-      table_migrator.on_duplicate_update_map = <<-SQL
-        #{column_names.map {|c| "#{c}=VALUES(#{c})"}.join(", ")}
-      SQL
     end
 
-## Example Migration (explicit)
 
-    class AddAColumnToMyGigantoTable < ActiveRecord::Migration
+### Advanced Migration
+
+You can use a normal ActiveRecord::Migration, you just have to set up a TableMigrator instance yourself. Otherwise, it works the same as above.
+
+    class AddStuffToMyBigTable < ActiveRecord::Migration
 
       # just a helper method so we don't have to repeat this in self.up and self.down
       def self.setup
 
         # create a new TableMigrator instance for the table `users`
-        # :migration_name - a label for this migration, used to rename old tables.
-        #                   this must be unique for each migration using a TableMigrator
-        # :multi_pass     - copy the delta asynchronously multiple times.
-        # :dry_run        - set to false to really run the tm's SQL.
-        @tm = TableMigrator.new("users",
-          :migration_name => 'random_column',
+        # TableMigrator#initialize takes the same arguments as 'migrates'
+        @tm = TableMigrator.new(:users,
+          :migration_name => 'add_stuff',
           :multi_pass => true,
           :create_temp_table => true, # default
           :dry_run => false
         )
-        
+
         # push alter tables to schema_changes
         @tm.schema_changes.push <<-SQL
           ALTER TABLE :new_table_name 
@@ -104,28 +129,25 @@ You can create your migration by inheriting from TableMigration and skip some of
           ADD INDEX `index_foo` (`foo`)
         SQL
 
+        # customizing @tm.column_names
+        @tm.column_names = %w(id name session password_hash created_at updated_at)
+
         # for convenience
-        common_cols = %w(id name session password_hash created_at updated_at)    
+        column_list = @tm.quoted_column_names.join(', ')
 
         # the base INSERT query with no wheres. (We'll take care of that part.)
         @tm.base_copy_query = <<-SQL
-          INSERT INTO :new_table_name (#{common_cols.join(", ")}) 
-          SELECT #{common_cols.join(", ")} FROM :table_name
-        SQL
-
-        # specify the ON DUPLICATE KEY update strategy.
-        @tm.on_duplicate_update_map = <<-SQL
-          #{common_cols.map {|c| "#{c}=VALUES(#{c})"}.join(", ")}
+          INSERT INTO :new_table_name (#{column_list}) SELECT #{column_list} FROM :table_name
         SQL
       end
-      
+
       def self.up
-        self.setup    
+        self.setup
         @tm.up!
       end
 
       def self.down
-        self.setup    
+        self.setup
         @tm.down!
       end
 
@@ -136,7 +158,8 @@ You can create your migration by inheriting from TableMigration and skip some of
       end
     end
 
-# Two-phase migration
+
+## Migrating in Two Phases
 
 You can run the migration in two phases if you set the `:create_temp_table` option to false.
 
@@ -151,7 +174,10 @@ This creates the temporary table, copies the data over without locking anything.
 Finally, you put up whatever downtime notices you have and run your typical migration task.  Since the table is already created, the script will only
 copy data (if multi_pass is enabled) and perform the actual table move.  It assumes the temporary table has been created already.
 
-Thanks go to the rest of the crew at SB.
+## Contributors
+- Matt Freels
+- Rohith Ravi
+- Rick Olson
 
 
-Copyright (c) 2009 Serious Business, released under the MIT license
+Copyright (c) 2009 Serious Business, released under the MIT license.
