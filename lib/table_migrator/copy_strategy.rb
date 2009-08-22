@@ -15,12 +15,12 @@ module TableMigrator
 
     def old_table
       if config[:migration_name]
-      "#{table}_pre_#{config[:migration_name]}"
+      "#{table}_before_#{config[:migration_name]}"
       else
       "#{table}_old"
       end
     end
-    
+
     def column_names
       connection.columns(table).map {|c| c.name }
     end
