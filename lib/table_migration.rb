@@ -5,7 +5,6 @@ class TableMigration < ActiveRecord::Migration
     delegate :column_names,            :to => :table_migrator
     delegate :quoted_column_names,     :to => :table_migrator
     delegate :base_copy_query,         :to => :table_migrator
-    delegate :change_table,            :to => :table_migrator
   end
 
   def self.change_table(*args, &block)
