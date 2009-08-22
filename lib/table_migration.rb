@@ -8,6 +8,12 @@ class TableMigration < ActiveRecord::Migration
     delegate :change_table,            :to => :table_migrator
   end
 
+  def self.change_table(*args, &block)
+    migrates(*args) if table_migrator.nil?
+
+    table_migrator.change_table(&block)
+  end
+
   def self.create_table_and_copy_info
     table_migrator.create_table_and_copy_info
   end
