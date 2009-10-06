@@ -25,6 +25,8 @@ module TableMigrator
     def base_copy_query(insert_or_replace)
       copied = column_names.reject {|c| renames[c].nil? }
       renamed = copied.map {|c| renames[c] }
+      renamed = renamed.map {|c| "`#{c}`"}
+      copied = copied.map {|c| "`#{c}`"}
 
       "#{insert_or_replace} INTO `#{new_table}` (#{renamed.join(', ')})
         SELECT #{copied.join(', ')} FROM `#{table}`"

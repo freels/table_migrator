@@ -43,7 +43,7 @@ module TableMigrator
         # lock for write, copy final delta, and swap
         in_table_lock(table_name, new_table_name) do
           self.full_delta_copy
-          execute("ALTER TABLE `#{table_name}` RENAME TO `#{old_table_name}")
+          execute("ALTER TABLE `#{table_name}` RENAME TO `#{old_table_name}`")
           execute("ALTER TABLE `#{new_table_name}` RENAME TO `#{table_name}`")
         end
 

@@ -6,7 +6,7 @@ module TableMigrator
 
     def initialize(table, config = {})
       self.table = table
-
+      
       defaults = { :dry_run => false, :create_temp_table => true, :delta_column => 'updated_at'}
       self.config = defaults.merge(config)
     end
@@ -40,8 +40,13 @@ module TableMigrator
     end
 
     def base_copy_query(columns = nil)
-      @base_copy_query   = nil unless columns.nil?
-      columns          ||= quoted_column_names
+      unless columns.nil?
+        @base_copy_query  = nil
+        columns = columns.map { |n| "`#{n}`" }
+      else
+        columns = quoted_column_names
+      end
+      
       @base_copy_query ||= %(INSERT INTO :new_table_name (#{columns.join(", ")}) SELECT #{columns.join(", ")} FROM :table_name)
     end
 
