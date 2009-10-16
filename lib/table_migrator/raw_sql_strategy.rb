@@ -1,5 +1,5 @@
 module TableMigrator
-  class RawSqlStrategy
+  class RawSqlStrategy < CopyStrategy
     attr_accessor :base_copy_query, :schema_changes
 
     def initialize(table, config, connection, base_copy_query, schema_changes)
@@ -17,7 +17,7 @@ module TableMigrator
 
     # columns are the responsibility of the user
     def base_copy_query(insert_or_replace)
-      copy = base_copy_query.gsub(/\A\s*INSERT/i, insert_or_replace)
+      copy = @base_copy_query.gsub(/\A\s*INSERT/i, insert_or_replace)
       copy = sub_new_table(copy, new_table)
       copy = sub_table(copy, table)
       copy
