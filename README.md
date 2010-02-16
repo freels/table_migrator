@@ -167,17 +167,21 @@ First, you deploy the code with the migration and manually run the `#create_tabl
 
     # if you use a TableMigration sublcass
     >> require 'db/migrate/13423423_my_migration.rb'
+    >> now = Time.now
     >> MyMigration.create_table_and_copy_info
+    >> puts %(NEXT_EPOCH="#{now}")
+    NEXT_EPOCH="Tue Feb 16 13:22:14 -0800 2010"
 
 This creates the temporary table, copies the data over without locking anything.  You can safely run this without halting your application.
 
 Finally, you put up whatever downtime notices you have and run your typical migration task.  Since the table is already created, the script will only
 copy data (if multi_pass is enabled) and perform the actual table move.  It assumes the temporary table has been created already.
 
+    $ NEXT_EPOCH="Tue Feb 16 13:22:14 -0800 2010" RAILS_ENV=production rake db:migrate
+
 ## Contributors
 - Matt Freels
 - Rohith Ravi
 - Rick Olson
-
 
 Copyright (c) 2009 Serious Business, released under the MIT license.

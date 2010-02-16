@@ -12,6 +12,7 @@ module TableMigrator
     end
 
     def up!
+      engine.set_epoch(Time.parse(ENV['NEXT_EPOCH'])) if !ENV['NEXT_EPOCH'].blank?
       engine.up!
     end
 
@@ -70,7 +71,7 @@ module TableMigrator
     end
 
     def engine
-      CopyEngine.new(strategy)
+      @engine ||= CopyEngine.new(strategy)
     end
   end
 end

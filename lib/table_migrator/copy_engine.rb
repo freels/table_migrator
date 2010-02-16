@@ -151,6 +151,10 @@ module TableMigrator
 
     # Manage the Epoch
 
+    def set_epoch(time)
+      @next_epoch = time
+    end
+
     def flop_epoch
       epoch = @next_epoch
       @next_epoch = self.next_epoch
