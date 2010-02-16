@@ -54,6 +54,10 @@ module TableMigrator
       config[:dry_run] == true
     end
 
+    def create_table_and_copy_info
+      engine.create_table_and_copy_info
+    end
+
     private
 
     def strategy
