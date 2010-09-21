@@ -1,3 +1,5 @@
+require 'active_record'
+
 module TableMigrator
   class CopyEngine
 
