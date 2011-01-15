@@ -158,7 +158,7 @@ module TableMigrator
     def flop_epoch
       epoch = @next_epoch
       @next_epoch = self.next_epoch
-      info "Current Epoch starts at: #{@next_epoch}"
+      info "Current Epoch starts at: #{@next_epoch.to_s(:db)}"
       epoch
     end
 
@@ -187,11 +187,11 @@ module TableMigrator
     end
 
     def full_delta_copy_query(epoch)
-    "#{base_copy_query} WHERE `#{delta_column}` >= '#{epoch}'"
+    "#{base_copy_query} WHERE `#{delta_column}` >= '#{epoch.to_s(:db)}'"
     end
 
     def updated_ids_query(epoch)
-    "SELECT `id` FROM #{table_name} WHERE `#{delta_column}` >= '#{epoch}'"
+    "SELECT `id` FROM #{table_name} WHERE `#{delta_column}` >= '#{epoch.to_s(:db)}'"
     end
 
     def paged_delta_copy_query(ids)
