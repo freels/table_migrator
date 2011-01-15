@@ -32,7 +32,7 @@ This method will not propagate normal `DELETES`s to the new table if they happen
 
 TableMigrator supports two APIs for defining migrations. One uses ActiveRecord's `change_table` syntax, and the other uses manually defined SQL snippets. You can create your migration by inheriting from TableMigration and skip some of the setup normally required.
 
-    # using change_table
+Using change_table:
 
     class AddStuffToMyBigTable < TableMigration
 
@@ -57,7 +57,7 @@ TableMigrator supports two APIs for defining migrations. One uses ActiveRecord's
     end
 
 
-    # using raw sql
+Using raw sql:
 
     class AddStuffToMyBigTable < TableMigration
       migrates :users
