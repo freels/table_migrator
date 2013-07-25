@@ -52,7 +52,7 @@ module TableMigrator
         # this will not be the case in production.
         in_table_lock(table_name, new_table_name) do
           execute(self.base_copy_query)
-          execute("ALTER TABLE `#{table_name}` RENAME TO `#{old_table_name}")
+          execute("ALTER TABLE `#{table_name}` RENAME TO `#{old_table_name}`")
           execute("ALTER TABLE `#{new_table_name}` RENAME TO `#{table_name}`")
         end
       end
