@@ -1,3 +1,8 @@
+require 'active_record'
+require 'table_migrator/copy_engine'
+require 'table_migrator/change_table_strategy'
+require 'table_migrator/raw_sql_strategy'
+
 module TableMigrator
   class Base
 

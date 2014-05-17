@@ -1,3 +1,6 @@
+require 'table_migration'
+require 'table_migrator/base'
+
 module TableMigrator
   extend self
 

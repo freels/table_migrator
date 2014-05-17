@@ -1,3 +1,6 @@
+require 'active_record'
+require 'table_migrator/copy_strategy'
+
 module TableMigrator
 
   class ChangeTableStrategy < CopyStrategy

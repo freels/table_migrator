@@ -1,3 +1,6 @@
+require 'active_record'
+require 'table_migrator/base'
+
 class TableMigration < ActiveRecord::Migration
   class << self
     attr_reader :table_migrator

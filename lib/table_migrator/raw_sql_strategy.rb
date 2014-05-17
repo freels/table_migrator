@@ -1,3 +1,5 @@
+require 'table_migrator/copy_strategy'
+
 module TableMigrator
   class RawSqlStrategy < CopyStrategy
     attr_accessor :base_copy_query, :schema_changes
